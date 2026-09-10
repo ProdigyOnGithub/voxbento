@@ -8,9 +8,11 @@ from portal.transcription.aggregator import CaptionAggregator
 
 @pytest.mark.anyio
 async def test_forced_finalization_at_50_words_in_handle_chunk():
+    """Test that handle_chunk forcefully finalizes an utterance when it exceeds 50 words without punctuation."""
     received = []
 
     async def fake_callback(booth_id, message):
+        """Mock callback to collect broadcasted caption messages."""
         received.append(message)
 
     aggregator = CaptionAggregator(fake_callback)
@@ -29,9 +31,11 @@ async def test_forced_finalization_at_50_words_in_handle_chunk():
 @pytest.mark.anyio
 @patch("time.time")
 async def test_forced_finalization_at_15_seconds_in_handle_chunk(mock_time):
+    """Test that handle_chunk forcefully finalizes an utterance when 15 seconds have passed since the start."""
     received = []
 
     async def fake_callback(booth_id, message):
+        """Mock callback to collect broadcasted caption messages."""
         received.append(message)
 
     aggregator = CaptionAggregator(fake_callback)

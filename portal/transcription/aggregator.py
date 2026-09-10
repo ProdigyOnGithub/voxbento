@@ -108,6 +108,10 @@ class CaptionAggregator:
             await self.broadcast_callback(booth_id, {"type": "caption", "status": "clear", "text": ""})
 
     async def handle_final(self, booth_id: str, text: str):
+        """
+        Finalizes an utterance, triggers database save, and initiates translation.
+        Called automatically on punctuation split, timeout, or explicit clear.
+        """
         state = self._get_state(booth_id)
         final_text = text.strip() or state.current_utterance
 
