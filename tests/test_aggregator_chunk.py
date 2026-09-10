@@ -7,7 +7,7 @@ from portal.transcription.aggregator import CaptionAggregator
 
 
 @pytest.mark.anyio
-async def test_bug_50_word_limit_in_handle_chunk():
+async def test_forced_finalization_at_50_words_in_handle_chunk():
     received = []
 
     async def fake_callback(booth_id, message):
@@ -22,13 +22,13 @@ async def test_bug_50_word_limit_in_handle_chunk():
 
     finals = [m for m in received if m.get("status") == "final"]
 
-    # This assertion will fail because handle_chunk never triggers forced finalization!
-    assert len(finals) > 0, "BUG: Passed 60 words, but no final caption was emitted!"
+    # Verify that the chunk is forcefully finalized after exceeding 50 words without punctuation
+    assert len(finals) > 0, "Expected a final caption to be emitted due to word count limit"
 
 
 @pytest.mark.anyio
 @patch("time.time")
-async def test_bug_15_second_limit_in_handle_chunk(mock_time):
+async def test_forced_finalization_at_15_seconds_in_handle_chunk(mock_time):
     received = []
 
     async def fake_callback(booth_id, message):
@@ -46,5 +46,5 @@ async def test_bug_15_second_limit_in_handle_chunk(mock_time):
 
     finals = [m for m in received if m.get("status") == "final"]
 
-    # This assertion will fail because the time limit is defeated!
-    assert len(finals) > 0, "BUG: 20 seconds passed, but no final caption was emitted!"
+    # Verify that the chunk is forcefully finalized after 15 seconds have passed
+    assert len(finals) > 0, "Expected a final caption to be emitted due to time limit"
