@@ -158,7 +158,7 @@ async def register_submit(request: Request):
         request=request,
         name="register.html",
         context={"errors": errors, "email": email, "display_name": display_name},
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
     )
 
 
