@@ -1,0 +1,82 @@
+import base64
+import logging
+import numpy as np
+
+from ray import serve
+from starlette.requests import Request
+
+logger = logging.getLogger(__name__)
+
+
+@serve.deployment(
+    autoscaling_config={
+        "min_replicas": 0,
+        "initial_replicas": 0,
+        "max_replicas": 2,
+        "target_num_ongoing_requests_per_replica": 20,
+    },
+    ray_actor_options={"num_cpus": 2},
+)
+class FasterWhisperTranscriber:
+    def __init__(self, model_size: str = "tiny"):
+        from faster_whisper import WhisperModel
+
+        self.model_size = model_size
+        logger.info(f"Loading faster-whisper model: {model_size}")
+
+        self.model = WhisperModel(model_size, device="cpu", compute_type="int8")
+        logger.info(f"Whisper model {model_size} loaded successfully.")
+
+    def transcribe(self, audio_data: np.ndarray, language_code: str) -> str:
+        segments, _ = self.model.transcribe(
+            audio_data,
+            beam_size=5,
+            vad_filter=True,
+            language=language_code if language_code else None,
+            word_timestamps=True,
+            compression_ratio_threshold=2.4,
+            no_speech_threshold=0.6,
+            log_prob_threshold=-1.0,
+            condition_on_previous_text=False,
+        )
+
+        valid_words = []
+        for segment in segments:
+            if not getattr(segment, "words", None):
+                # Fallback if words aren't available
+                valid_words.append(segment.text.strip())
+                continue
+
+            for word in segment.words:
+                if word.end > 1.0:  # Skip words completely inside the 1.0s overlap period
+                    valid_words.append(word.word.strip())
+
+        return " ".join(valid_words).strip()
+
+    async def __call__(self, request: Request):
+        payload = await request.json()
+
+        if not isinstance(payload, dict):
+            return {"error": "Expected JSON dictionary payload."}
+
+        audio_b64 = payload.get("audio_b64")
+        if not audio_b64:
+            return {"error": "Missing audio_b64 in payload."}
+
+        # Convert back from base64 to bytes, then to numpy float32
+        audio_bytes = base64.b64decode(audio_b64)
+        audio_data = np.frombuffer(audio_bytes, dtype=np.float32)
+
+        language_code = payload.get("language_code", "")
+
+        import asyncio
+
+        loop = asyncio.get_running_loop()
+        # Run inference in background thread so we don't block the Ray event loop
+        transcribed_text = await loop.run_in_executor(
+            None, lambda: self.transcribe(audio_data, language_code)
+        )
+
+        return {"transcribed_text": transcribed_text}
+
+transcriber_app = FasterWhisperTranscriber.bind()

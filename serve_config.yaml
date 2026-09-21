@@ -1,0 +1,14 @@
+proxy_location: EveryNode
+
+http_options:
+  host: 127.0.0.1
+  port: 8001
+
+applications:
+  - name: translator
+    route_prefix: /translator
+    import_path: portal.ray_serve.translator:translator_app
+
+  - name: transcriber
+    route_prefix: /transcriber
+    import_path: portal.ray_serve.transcriber:transcriber_app
