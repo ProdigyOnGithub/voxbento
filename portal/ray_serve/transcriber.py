@@ -81,7 +81,10 @@ class FasterWhisperTranscriber:
         Returns:
             A dictionary containing the transcribed text or an error.
         """
-        payload = await request.json()
+        try:
+            payload = await request.json()
+        except ValueError:
+            return {"error": "Invalid JSON payload."}
 
         if not isinstance(payload, dict):
             return {"error": "Expected JSON dictionary payload."}

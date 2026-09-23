@@ -17,8 +17,6 @@ class RayClient:
 
     def __init__(self, base_url: str | None = None):
         self.base_url = base_url or settings.ray_serve_base
-        # We use an async client so the web server doesn't freeze waiting for ML
-        self.http_client = httpx.AsyncClient(timeout=60.0)
 
     async def predict(self, endpoint_name: str, payload: dict[str, Any]) -> dict[str, Any]:
         """
@@ -27,7 +25,8 @@ class RayClient:
         url = f"{self.base_url}/{endpoint_name}"
 
         try:
-            response = await self.http_client.post(url, json=payload)
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(url, json=payload)
             response.raise_for_status()
             return response.json()
 
@@ -41,5 +40,5 @@ class RayClient:
             raise
 
     async def close(self) -> None:
-        """Close the underlying HTTP client."""
-        await self.http_client.aclose()
+        """Close the underlying HTTP client (no-op since we use per-request clients)."""
+        pass

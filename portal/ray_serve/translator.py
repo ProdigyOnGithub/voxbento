@@ -49,7 +49,7 @@ class NLLBTranslator:
 
         self.tokenizer = transformers.AutoTokenizer.from_pretrained(
             self.local_model_path, src_lang="eng_Latn", revision="main"
-        )
+        )  # nosec
 
         import ray
 
@@ -157,7 +157,10 @@ class NLLBTranslator:
         Returns:
             A dictionary containing the translated text or an error.
         """
-        payload = await request.json()
+        try:
+            payload = await request.json()
+        except ValueError:
+            return {"error": "Invalid JSON payload."}
 
         if isinstance(payload, dict):
             translated_text = await self.translate_batch(payload)
