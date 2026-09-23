@@ -62,6 +62,15 @@ def _get_engine():
         from portal.config import settings
 
         _engine = create_async_engine(settings.database_url, echo=settings.debug)
+
+        if settings.database_url.startswith("sqlite"):
+            from sqlalchemy import event
+            @event.listens_for(_engine.sync_engine, "connect")
+            def set_sqlite_pragma(dbapi_connection, connection_record):
+                cursor = dbapi_connection.cursor()
+                cursor.execute("PRAGMA foreign_keys=ON")
+                cursor.close()
+
         _async_session_factory = async_sessionmaker(_engine, expire_on_commit=False)
     return _engine
 
@@ -81,6 +90,15 @@ def configure(url: str, *, echo: bool = False) -> None:
     """
     global _engine, _async_session_factory
     _engine = create_async_engine(url, echo=echo)
+
+    if url.startswith("sqlite"):
+        from sqlalchemy import event
+        @event.listens_for(_engine.sync_engine, "connect")
+        def set_sqlite_pragma(dbapi_connection, connection_record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
     _async_session_factory = async_sessionmaker(_engine, expire_on_commit=False)
 
 
@@ -174,6 +192,12 @@ async def delete_event(session: AsyncSession, event_id: int) -> bool:
     ev = await get_event_by_id(session, event_id)
     if ev is None:
         return False
+    # Break the circular FK cycle: rooms.relay_booth_id → booths.id ↔ booths.room_id → rooms.id
+    # assign the relationship, not the column, so an already-loaded relay_booth is
+    # cleared too and the unit of work no longer sees the Room ↔ DBBooth dependency
+    result = await session.execute(select(Room).where(Room.event_id == event_id))
+    for room in result.scalars().all():
+        room.relay_booth = None
     await session.delete(ev)
     await session.flush()
     return True
