@@ -27,6 +27,7 @@ from starlette.requests import Request
 
 logger = logging.getLogger(__name__)
 
+
 @serve.deployment(
     autoscaling_config={
         "min_replicas": 0,
@@ -38,12 +39,12 @@ logger = logging.getLogger(__name__)
 class TTSGenerator:
     def __init__(self, model_name: str = "example-tts"):
         import ray
-        
+
         # 1. Dynamically check for GPUs
         has_gpu = len(ray.get_gpu_ids()) > 0
         self.device = "cuda" if has_gpu else "cpu"
         self.compute_type = "float16" if has_gpu else "int8"
-        
+
         # 2. Dynamically check assigned CPUs to prevent thread locking
         self.assigned_cpus = int(ray.get_runtime_context().get_assigned_resources().get("CPU", 2))
         self.intra_threads = max(1, self.assigned_cpus)
@@ -54,15 +55,16 @@ class TTSGenerator:
 
     async def __call__(self, request: Request):
         payload = await request.json()
-        
+
         text = payload.get("text", "")
         if not text:
             return {"error": "Missing text in payload."}
 
         # Perform inference
         # audio_bytes = self.model.generate(text)
-        
+
         return {"audio_b64": "base64_encoded_audio_here"}
+
 
 # Bind the deployment so Ray Serve can import it
 tts_app = TTSGenerator.bind()
@@ -101,18 +103,19 @@ Because Ray Serve handles its own HTTP proxy, the FastAPI web server does not ne
 ```python
 from portal.ray_serve.client import RayClient
 
+
 async def generate_speech(text: str):
     client = RayClient()
     try:
         # The endpoint name must match the `route_prefix` from Step 2 (without the slash)
         result = await client.predict("tts", payload={"text": text})
-        
+
         if "error" in result:
             print(f"Model Error: {result['error']}")
             return None
-            
+
         return result["audio_b64"]
-        
+
     except Exception as e:
         print(f"Failed to reach Ray Serve: {e}")
 ```

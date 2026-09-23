@@ -1,3 +1,5 @@
+"""Tests for the local machine translation provider using Ray Serve."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock
@@ -9,8 +11,9 @@ from portal.translations.providers.local import LocalProvider
 
 @pytest.mark.anyio
 async def test_local_provider_translate_success():
+    """Test that the local provider correctly constructs the payload and calls the Ray client."""
     provider = LocalProvider()
-    
+
     mock_ray_client = AsyncMock()
     mock_ray_client.predict.return_value = {"translated_text": "Bonjour"}
     provider.ray_client = mock_ray_client
@@ -25,7 +28,7 @@ async def test_local_provider_translate_success():
         api_key=None,
     )
     assert result == "Bonjour"
-    
+
     mock_ray_client.predict.assert_called_once()
     call_args = mock_ray_client.predict.call_args[0]
     assert call_args[0] == "translator"
@@ -37,8 +40,9 @@ async def test_local_provider_translate_success():
 
 @pytest.mark.anyio
 async def test_local_provider_translate_invalid_language():
+    """Test that the local provider handles invalid languages gracefully without calling Ray."""
     provider = LocalProvider()
-    
+
     mock_ray_client = AsyncMock()
     provider.ray_client = mock_ray_client
 

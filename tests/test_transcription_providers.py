@@ -77,4 +77,3 @@ class TestTranscriptionProviders:
                 await provider.process_chunk(b"\x00" * 3200, "en", "whisper-1", config)
         finally:
             pg.shared_http_client = None
-

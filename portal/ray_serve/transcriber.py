@@ -1,7 +1,9 @@
+"""Ray Serve deployment for Whisper audio transcription."""
+
 import base64
 import logging
-import numpy as np
 
+import numpy as np
 from ray import serve
 from starlette.requests import Request
 
@@ -17,13 +19,22 @@ logger = logging.getLogger(__name__)
     }
 )
 class FasterWhisperTranscriber:
+    """Ray Serve deployment class for the Faster Whisper transcription model."""
+
     def __init__(self, model_size: str = "tiny"):
+        """
+        Initialize the Whisper model with dynamic hardware detection.
+
+        Args:
+            model_size: The model size (e.g., 'tiny', 'base', 'large-v3').
+        """
         from faster_whisper import WhisperModel
 
         self.model_size = model_size
         logger.info(f"Loading faster-whisper model: {model_size}")
 
         import ray
+
         has_gpu = len(ray.get_gpu_ids()) > 0
         device = "cuda" if has_gpu else "cpu"
         compute_type = "float16" if has_gpu else "int8"
@@ -32,6 +43,16 @@ class FasterWhisperTranscriber:
         logger.info(f"Whisper model {model_size} loaded successfully.")
 
     def transcribe(self, audio_data: np.ndarray, language_code: str) -> str:
+        """
+        Run the audio data through the transcription model.
+
+        Args:
+            audio_data: Numpy array of the float32 audio samples.
+            language_code: Optional ISO language code to force the model into.
+
+        Returns:
+            The transcribed text string.
+        """
         segments, _ = self.model.transcribe(
             audio_data,
             beam_size=5,
@@ -58,6 +79,15 @@ class FasterWhisperTranscriber:
         return " ".join(valid_words).strip()
 
     async def __call__(self, request: Request):
+        """
+        Handle incoming HTTP requests to the deployment.
+
+        Args:
+            request: The Starlette HTTP request containing the JSON payload.
+
+        Returns:
+            A dictionary containing the transcribed text or an error.
+        """
         payload = await request.json()
 
         if not isinstance(payload, dict):
@@ -77,10 +107,9 @@ class FasterWhisperTranscriber:
 
         loop = asyncio.get_running_loop()
         # Run inference in background thread so we don't block the Ray event loop
-        transcribed_text = await loop.run_in_executor(
-            None, lambda: self.transcribe(audio_data, language_code)
-        )
+        transcribed_text = await loop.run_in_executor(None, lambda: self.transcribe(audio_data, language_code))
 
         return {"transcribed_text": transcribed_text}
+
 
 transcriber_app = FasterWhisperTranscriber.bind()

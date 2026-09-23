@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import asyncio
 import base64
 import logging
-import numpy as np
 from typing import TYPE_CHECKING
+
+import numpy as np
 
 if TYPE_CHECKING:
     from portal.transcription.providers.base import BoothTranscriptionState, ProviderConfig
@@ -13,6 +13,7 @@ from portal.ray_serve.client import RayClient
 from portal.transcription.providers.base import TranscriptionProvider
 
 logger = logging.getLogger(__name__)
+
 
 class LocalProvider(TranscriptionProvider):
     def __init__(self):

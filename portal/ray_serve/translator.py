@@ -1,3 +1,5 @@
+"""Ray Serve deployment for NLLB text translation."""
+
 import asyncio
 import logging
 import os
@@ -7,6 +9,7 @@ from starlette.requests import Request
 
 logger = logging.getLogger(__name__)
 
+
 def get_hf_repo_and_revision(model_size: str) -> tuple[str, str]:
     hf_repo_id = model_size
     rev = "main"
@@ -14,6 +17,7 @@ def get_hf_repo_and_revision(model_size: str) -> tuple[str, str]:
         hf_repo_id = "JustFrederik/nllb-200-distilled-600M-ct2-int8"
         rev = "302d78f00e6fdb50a1064059df7c392b735e9d05"
     return hf_repo_id, rev
+
 
 @serve.deployment(
     autoscaling_config={
@@ -24,7 +28,15 @@ def get_hf_repo_and_revision(model_size: str) -> tuple[str, str]:
     }
 )
 class NLLBTranslator:
+    """Ray Serve deployment class for the NLLB translation model."""
+
     def __init__(self, model_size: str = "nllb-200-distilled-600M"):
+        """
+        Initialize the NLLB model with dynamic hardware detection.
+
+        Args:
+            model_size: The HuggingFace repo ID or local path for the NLLB model.
+        """
         import ctranslate2
         import transformers
         from huggingface_hub import snapshot_download
@@ -47,10 +59,11 @@ class NLLBTranslator:
         )
 
         import ray
+
         has_gpu = len(ray.get_gpu_ids()) > 0
         device = "cuda" if has_gpu else "cpu"
         compute_type = "float16" if has_gpu else "int8"
-        
+
         assigned_cpus = int(ray.get_runtime_context().get_assigned_resources().get("CPU", 2))
         intra_threads = max(1, assigned_cpus)
 
@@ -65,6 +78,15 @@ class NLLBTranslator:
 
     @serve.batch(max_batch_size=20, batch_wait_timeout_s=0.05)
     async def translate_batch(self, requests: list[dict]) -> list[str]:
+        """
+        Process a batch of translation requests concurrently.
+
+        Args:
+            requests: A list of dictionaries containing text and language tokens.
+
+        Returns:
+            A list of translated text strings.
+        """
         if not requests:
             return []
 
@@ -107,7 +129,7 @@ class NLLBTranslator:
                     target_prefix=valid_prefixes,
                     beam_size=1,
                     max_decoding_length=256,
-                )
+                ),
             )
 
             for i, result in zip(valid_indices, batch_results):
@@ -133,6 +155,15 @@ class NLLBTranslator:
         return translated_texts
 
     async def __call__(self, request: Request):
+        """
+        Handle incoming HTTP requests to the deployment.
+
+        Args:
+            request: The Starlette HTTP request containing the JSON payload.
+
+        Returns:
+            A dictionary containing the translated text or an error.
+        """
         payload = await request.json()
 
         if isinstance(payload, dict):
@@ -140,5 +171,6 @@ class NLLBTranslator:
             return {"translated_text": translated_text}
 
         return {"error": "Expected JSON dictionary payload."}
+
 
 translator_app = NLLBTranslator.bind()
