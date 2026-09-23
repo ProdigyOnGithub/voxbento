@@ -19,14 +19,7 @@ def get_hf_repo_and_revision(model_size: str) -> tuple[str, str]:
     return hf_repo_id, rev
 
 
-@serve.deployment(
-    autoscaling_config={
-        "min_replicas": 0,
-        "initial_replicas": 0,
-        "max_replicas": 2,
-        "target_num_ongoing_requests_per_replica": 20,
-    }
-)
+@serve.deployment
 class NLLBTranslator:
     """Ray Serve deployment class for the NLLB translation model."""
 

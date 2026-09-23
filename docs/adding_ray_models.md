@@ -28,14 +28,7 @@ from starlette.requests import Request
 logger = logging.getLogger(__name__)
 
 
-@serve.deployment(
-    autoscaling_config={
-        "min_replicas": 0,
-        "initial_replicas": 0,
-        "max_replicas": 2,
-        "target_num_ongoing_requests_per_replica": 20,
-    }
-)
+@serve.deployment
 class TTSGenerator:
     def __init__(self, model_name: str = "example-tts"):
         import ray
@@ -86,6 +79,11 @@ Ray Serve uses `serve_config.yaml` as the absolute single source of truth for th
     import_path: portal.ray_serve.tts:tts_app
     deployments:
       - name: TTSGenerator
+        autoscaling_config:
+          min_replicas: 0
+          initial_replicas: 0
+          max_replicas: 2
+          target_num_ongoing_requests_per_replica: 5
         ray_actor_options:
           num_cpus: 2
           num_gpus: 0

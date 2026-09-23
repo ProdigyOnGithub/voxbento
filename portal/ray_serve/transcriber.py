@@ -10,14 +10,7 @@ from starlette.requests import Request
 logger = logging.getLogger(__name__)
 
 
-@serve.deployment(
-    autoscaling_config={
-        "min_replicas": 0,
-        "initial_replicas": 0,
-        "max_replicas": 2,
-        "target_num_ongoing_requests_per_replica": 20,
-    }
-)
+@serve.deployment
 class FasterWhisperTranscriber:
     """Ray Serve deployment class for the Faster Whisper transcription model."""
 
