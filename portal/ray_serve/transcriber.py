@@ -14,8 +14,7 @@ logger = logging.getLogger(__name__)
         "initial_replicas": 0,
         "max_replicas": 2,
         "target_num_ongoing_requests_per_replica": 20,
-    },
-    ray_actor_options={"num_cpus": 2},
+    }
 )
 class FasterWhisperTranscriber:
     def __init__(self, model_size: str = "tiny"):
@@ -24,7 +23,12 @@ class FasterWhisperTranscriber:
         self.model_size = model_size
         logger.info(f"Loading faster-whisper model: {model_size}")
 
-        self.model = WhisperModel(model_size, device="cpu", compute_type="int8")
+        import ray
+        has_gpu = len(ray.get_gpu_ids()) > 0
+        device = "cuda" if has_gpu else "cpu"
+        compute_type = "float16" if has_gpu else "int8"
+
+        self.model = WhisperModel(model_size, device=device, compute_type=compute_type)
         logger.info(f"Whisper model {model_size} loaded successfully.")
 
     def transcribe(self, audio_data: np.ndarray, language_code: str) -> str:

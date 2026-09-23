@@ -8,7 +8,17 @@ applications:
   - name: translator
     route_prefix: /translator
     import_path: portal.ray_serve.translator:translator_app
+    deployments:
+      - name: NLLBTranslator
+        ray_actor_options:
+          num_cpus: 2
+          num_gpus: 0
 
   - name: transcriber
     route_prefix: /transcriber
     import_path: portal.ray_serve.transcriber:transcriber_app
+    deployments:
+      - name: FasterWhisperTranscriber
+        ray_actor_options:
+          num_cpus: 2
+          num_gpus: 0

@@ -21,8 +21,7 @@ def get_hf_repo_and_revision(model_size: str) -> tuple[str, str]:
         "initial_replicas": 0,
         "max_replicas": 2,
         "target_num_ongoing_requests_per_replica": 20,
-    },
-    ray_actor_options={"num_cpus": 2},
+    }
 )
 class NLLBTranslator:
     def __init__(self, model_size: str = "nllb-200-distilled-600M"):
@@ -47,13 +46,18 @@ class NLLBTranslator:
             self.local_model_path, src_lang="eng_Latn", revision="main"
         )
 
-        cpu_count = os.cpu_count() or 4
-        intra_threads = min(cpu_count, 2)
+        import ray
+        has_gpu = len(ray.get_gpu_ids()) > 0
+        device = "cuda" if has_gpu else "cpu"
+        compute_type = "float16" if has_gpu else "int8"
+        
+        assigned_cpus = int(ray.get_runtime_context().get_assigned_resources().get("CPU", 2))
+        intra_threads = max(1, assigned_cpus)
 
         self.model = ctranslate2.Translator(
             self.local_model_path,
-            device="cpu",
-            compute_type="int8",
+            device=device,
+            compute_type=compute_type,
             inter_threads=1,
             intra_threads=intra_threads,
         )
