@@ -62,7 +62,7 @@ class LocalProvider(TranscriptionProvider):
                 return result["transcribed_text"]
             else:
                 logger.error(f"[Whisper Ray] Unexpected response: {result}")
-                return ""
+                raise RuntimeError(f"Unexpected response from Ray Serve: {result}")
         except Exception as e:
             logger.error(f"[Whisper Ray] Request to Ray Serve failed: {e}")
-            return ""
+            raise

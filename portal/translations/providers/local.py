@@ -232,7 +232,7 @@ class LocalProvider(TranslationProvider):
                 return result["translated_text"]
             else:
                 logger.error(f"[NLLB Ray] Unexpected response: {result}")
-                return None
+                raise RuntimeError(f"Unexpected response from Ray Serve: {result}")
         except Exception as e:
             logger.error(f"[NLLB Ray] Request to Ray Serve failed: {e}")
-            return None
+            raise
