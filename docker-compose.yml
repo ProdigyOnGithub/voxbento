@@ -65,9 +65,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    # Internal only: portal reaches Serve at http://ray-head:8001.
+    # For local dashboard access, bind to loopback only.
     ports:
-      - "8265:8265"  # Ray Dashboard
-      - "8001:8001"  # Ray Serve HTTP Proxy
+      - "127.0.0.1:8265:8265"  # Ray Dashboard
     volumes:
       - .:/app
       - /app/.venv
