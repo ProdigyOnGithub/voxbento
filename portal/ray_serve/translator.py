@@ -11,12 +11,10 @@ logger = logging.getLogger(__name__)
 
 
 def get_hf_repo_and_revision(model_size: str) -> tuple[str, str]:
-    hf_repo_id = model_size
-    rev = "main"
     if model_size == "nllb-200-distilled-600M":
-        hf_repo_id = "JustFrederik/nllb-200-distilled-600M-ct2-int8"
-        rev = "302d78f00e6fdb50a1064059df7c392b735e9d05"
-    return hf_repo_id, rev
+        return "JustFrederik/nllb-200-distilled-600M-ct2-int8", "302d78f00e6fdb50a1064059df7c392b735e9d05"
+    
+    raise ValueError(f"Unsupported model size: {model_size}")
 
 
 @serve.multiplexed(max_num_models_per_replica=2)
@@ -127,12 +125,12 @@ class NLLBTranslator:
                 ),
             )
 
-            for idx, src_idx, result in zip(range(len(sources)), group_indices, batch_results):
+            for src_idx, result in zip(group_indices, batch_results):
                 if not result or not result.hypotheses:
                     continue
 
                 target = result.hypotheses[0]
-                target_lang_token = group[idx][1].get("target_lang_token")
+                target_lang_token = requests[src_idx].get("target_lang_token")
 
                 if target and target[0] == target_lang_token:
                     target = target[1:]
