@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 def get_hf_repo_and_revision(model_size: str) -> tuple[str, str]:
     if model_size == "nllb-200-distilled-600M":
         return "JustFrederik/nllb-200-distilled-600M-ct2-int8", "302d78f00e6fdb50a1064059df7c392b735e9d05"
-    
+
     raise ValueError(f"Unsupported model size: {model_size}")
 
 
