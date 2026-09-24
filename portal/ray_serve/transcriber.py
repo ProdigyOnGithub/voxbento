@@ -10,43 +10,42 @@ from starlette.requests import Request
 logger = logging.getLogger(__name__)
 
 
+@serve.multiplexed(max_num_models_per_replica=2)
+async def get_whisper_model(model_size: str):
+    import ray
+    from faster_whisper import WhisperModel
+
+    logger.info(f"Loading faster-whisper model dynamically: {model_size}")
+    has_gpu = len(ray.get_gpu_ids()) > 0
+    device = "cuda" if has_gpu else "cpu"
+    compute_type = "float16" if has_gpu else "int8"
+
+    return WhisperModel(model_size, device=device, compute_type=compute_type)
+
+
 @serve.deployment
 class FasterWhisperTranscriber:
     """Ray Serve deployment class for the Faster Whisper transcription model."""
 
-    def __init__(self, model_size: str = "tiny"):
+    def __init__(self):
         """
-        Initialize the Whisper model with dynamic hardware detection.
-
-        Args:
-            model_size: The model size (e.g., 'tiny', 'base', 'large-v3').
+        Initialize the Whisper deployment. Models are loaded dynamically via multiplexing.
         """
-        from faster_whisper import WhisperModel
+        pass
 
-        self.model_size = model_size
-        logger.info(f"Loading faster-whisper model: {model_size}")
-
-        import ray
-
-        has_gpu = len(ray.get_gpu_ids()) > 0
-        device = "cuda" if has_gpu else "cpu"
-        compute_type = "float16" if has_gpu else "int8"
-
-        self.model = WhisperModel(model_size, device=device, compute_type=compute_type)
-        logger.info(f"Whisper model {model_size} loaded successfully.")
-
-    def transcribe(self, audio_data: np.ndarray, language_code: str) -> str:
+    def transcribe_with_model(self, model, audio_data: np.ndarray, language_code: str) -> str:
         """
         Run the audio data through the transcription model.
 
         Args:
+            model: The dynamically loaded WhisperModel.
             audio_data: Numpy array of the float32 audio samples.
             language_code: Optional ISO language code to force the model into.
 
         Returns:
             The transcribed text string.
         """
-        segments, _ = self.model.transcribe(
+        segments, _ = model.transcribe(
             audio_data,
             beam_size=5,
             vad_filter=True,
@@ -99,11 +98,16 @@ class FasterWhisperTranscriber:
 
         language_code = payload.get("language_code", "")
 
+        model_size = serve.get_multiplexed_model_id() or "tiny"
+        model = await get_whisper_model(model_size)
+
         import asyncio
 
         loop = asyncio.get_running_loop()
         # Run inference in background thread so we don't block the Ray event loop
-        transcribed_text = await loop.run_in_executor(None, lambda: self.transcribe(audio_data, language_code))
+        transcribed_text = await loop.run_in_executor(
+            None, lambda: self.transcribe_with_model(model, audio_data, language_code)
+        )
 
         return {"transcribed_text": transcribed_text}
 

@@ -54,8 +54,10 @@ class LocalProvider(TranscriptionProvider):
             "model_size": model_variant,
         }
 
+        headers = {"X-Serve-Multiplexed-Model-Id": model_variant}
+
         try:
-            result = await self.ray_client.predict("transcriber", payload)
+            result = await self.ray_client.predict("transcriber", payload, headers=headers)
             if "transcribed_text" in result:
                 return result["transcribed_text"]
             else:

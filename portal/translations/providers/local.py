@@ -224,8 +224,10 @@ class LocalProvider(TranslationProvider):
 
         payload = {"text": text, "source_lang_token": source_lang_token, "target_lang_token": target_lang_token}
 
+        headers = {"X-Serve-Multiplexed-Model-Id": model}
+
         try:
-            result = await self.ray_client.predict("translator", payload)
+            result = await self.ray_client.predict("translator", payload, headers=headers)
             if "translated_text" in result:
                 return result["translated_text"]
             else:
