@@ -9,6 +9,7 @@ import urllib.parse
 from datetime import timedelta
 from pathlib import Path
 
+import httpx
 import pycountry
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
@@ -18,7 +19,6 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from portal.auth import (
-    create_admin_token,
     get_accessible_event_ids,
     get_admin_flags,
     get_current_user,
@@ -80,6 +80,7 @@ from portal.email import send_role_invite_email
 from portal.globals import _JS_CACHE_BUST, booths, get_http_client
 from portal.models import (
     BoothTranslationLanguage,
+    Event,
     RoomTranslationLanguage,
     TranscriptSegment,
     TranscriptTranslation,
@@ -99,6 +100,17 @@ templates = Jinja2Templates(
     directory=str(_BASE_DIR / "templates"),
     context_processors=[management_template_context],
 )
+
+
+def _apply_api_key_updates(
+    event: Event,
+    updates: tuple[tuple[str, str | None, bool | None], ...],
+) -> None:
+    for attribute, value, clear in updates:
+        if clear:
+            setattr(event, attribute, None)
+        elif value and (trimmed_value := value.strip()):
+            setattr(event, attribute, encrypt_val(trimmed_value))
 
 
 async def _send_admin_invite(session, user: User, role_name: str, context_name: str, target_url: str):
@@ -258,36 +270,14 @@ async def mission_control_grid(request: Request, event_slug: str, user=Depends(r
 
 
 @router.get("/admin/login")
-async def admin_login_page(request: Request):
-    user = await get_current_user(request)
-    if user and user.get("is_admin"):
-        return safe_redirect(url="/admin/", status_code=status.HTTP_303_SEE_OTHER)
-    return templates.TemplateResponse(request=request, name="admin/login.html", context={})
-
-
-@router.post("/admin/login")
-async def admin_login_submit(request: Request):
-    form = await request.form()
-    password = form.get("password", "").strip()
-    admin_password = (settings.admin_password or "").strip()
-    if not admin_password or password != admin_password:
-        return templates.TemplateResponse(
-            request=request,
-            name="admin/login.html",
-            context={"error": "Invalid password."},
-            status_code=status.HTTP_403_FORBIDDEN,
-        )
-    token = create_admin_token()
-    response = safe_redirect(url="/admin/", status_code=status.HTTP_303_SEE_OTHER)
-    response.set_cookie(
-        key="admin_token", value=token, httponly=True, samesite="lax", max_age=settings.jwt_expiry_seconds
-    )
-    return response
+async def admin_login_page():
+    """Retired admin sign-in page; everyone signs in through ``/login``."""
+    return safe_redirect(url="/login?next=/admin/", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.get("/admin/logout")
 async def admin_logout():
-    response = safe_redirect(url="/admin/login", status_code=status.HTTP_303_SEE_OTHER)
+    response = safe_redirect(url="/login", status_code=status.HTTP_303_SEE_OTHER)
     response.delete_cookie("admin_token")
     response.delete_cookie("user_token")
     response.delete_cookie("session_token")
@@ -346,21 +336,34 @@ async def admin_dashboard(request: Request, page: int = 1):
 
 
 @router.get("/admin/events/", dependencies=[Depends(require_admin)])
-async def admin_event_list(request: Request, page: int = 1):
+async def admin_event_list(request: Request, page: int = 1, search: str | None = None):
+    requested_page = page
+    search = (search or "").strip() or None
     admin_flags = await get_admin_flags(request)
     user = await get_current_user(request)
     user_id = int(user["sub"]) if user and user.get("sub") else None
     allowed_event_ids = await _management_event_ids(request, user_id)
     limit = 20
-    offset = (page - 1) * limit
     async with get_session() as session:
-        total_events = await count_events(session, allowed_event_ids=allowed_event_ids)
-        events = await list_events(session, limit=limit, offset=offset, allowed_event_ids=allowed_event_ids)
-    total_pages = max(1, math.ceil(total_events / limit))
+        total_events = await count_events(session, allowed_event_ids=allowed_event_ids, search=search)
+        total_pages = max(1, math.ceil(total_events / limit))
+        page = min(max(page, 1), total_pages)
+        offset = (page - 1) * limit
+        events = await list_events(
+            session, limit=limit, offset=offset, allowed_event_ids=allowed_event_ids, search=search
+        )
     return templates.TemplateResponse(
         request=request,
         name="admin/event_list.html",
-        context={"events": events, "page": page, "total_pages": total_pages, **admin_flags},
+        context={
+            "events": events,
+            "page": page,
+            "requested_page": requested_page,
+            "total_pages": total_pages,
+            "total_events": total_events,
+            "search": search,
+            **admin_flags,
+        },
     )
 
 
@@ -595,6 +598,9 @@ async def admin_event_detail(request: Request, event_id: int):
             raise HTTPException(status_code=404, detail="Event not found.")
         rooms = await list_rooms_for_event(session, event_id)
         db_booths = await list_booths_for_event(session, event_id)
+    # Keep each room's booths together, in the same order as the Rooms list.
+    room_order = {room.id: index for index, room in enumerate(rooms)}
+    db_booths.sort(key=lambda b: (room_order.get(b.room_id, len(room_order)), b.language_code))
     booth_statuses = []
     for b in db_booths:
         bid = make_booth_id(event.slug, b.room_id, b.language_code)
@@ -656,42 +662,24 @@ async def admin_event_api_settings_post(
             raise HTTPException(status_code=404, detail="Event not found.")
         event.transcription_api_enabled = bool(transcription_api_enabled)
         try:
-            if clear_openai_api_key:
-                event.encrypted_openai_api_key = None
-            elif openai_api_key and openai_api_key.strip():
-                event.encrypted_openai_api_key = encrypt_val(openai_api_key.strip())
-            if clear_deepgram_api_key:
-                event.encrypted_deepgram_api_key = None
-            elif deepgram_api_key and deepgram_api_key.strip():
-                event.encrypted_deepgram_api_key = encrypt_val(deepgram_api_key.strip())
-            if clear_nvidia_api_key:
-                event.encrypted_nvidia_api_key = None
-            elif nvidia_api_key and nvidia_api_key.strip():
-                event.encrypted_nvidia_api_key = encrypt_val(nvidia_api_key.strip())
-            if clear_elevenlabs_api_key:
-                event.encrypted_elevenlabs_api_key = None
-            elif elevenlabs_api_key and elevenlabs_api_key.strip():
-                event.encrypted_elevenlabs_api_key = encrypt_val(elevenlabs_api_key.strip())
-            if clear_translation_openai_api_key:
-                event.encrypted_translation_openai_api_key = None
-            elif translation_openai_api_key and translation_openai_api_key.strip():
-                event.encrypted_translation_openai_api_key = encrypt_val(translation_openai_api_key.strip())
-            if clear_openrouter_api_key:
-                event.encrypted_openrouter_api_key = None
-            elif openrouter_api_key and openrouter_api_key.strip():
-                event.encrypted_openrouter_api_key = encrypt_val(openrouter_api_key.strip())
-            if clear_gemini_api_key:
-                event.encrypted_gemini_api_key = None
-            elif gemini_api_key and gemini_api_key.strip():
-                event.encrypted_gemini_api_key = encrypt_val(gemini_api_key.strip())
-            if clear_anthropic_api_key:
-                event.encrypted_anthropic_api_key = None
-            elif anthropic_api_key and anthropic_api_key.strip():
-                event.encrypted_anthropic_api_key = encrypt_val(anthropic_api_key.strip())
-            if clear_groq_api_key:
-                event.encrypted_groq_api_key = None
-            elif groq_api_key and groq_api_key.strip():
-                event.encrypted_groq_api_key = encrypt_val(groq_api_key.strip())
+            _apply_api_key_updates(
+                event,
+                (
+                    ("encrypted_openai_api_key", openai_api_key, clear_openai_api_key),
+                    ("encrypted_deepgram_api_key", deepgram_api_key, clear_deepgram_api_key),
+                    ("encrypted_nvidia_api_key", nvidia_api_key, clear_nvidia_api_key),
+                    ("encrypted_elevenlabs_api_key", elevenlabs_api_key, clear_elevenlabs_api_key),
+                    (
+                        "encrypted_translation_openai_api_key",
+                        translation_openai_api_key,
+                        clear_translation_openai_api_key,
+                    ),
+                    ("encrypted_openrouter_api_key", openrouter_api_key, clear_openrouter_api_key),
+                    ("encrypted_gemini_api_key", gemini_api_key, clear_gemini_api_key),
+                    ("encrypted_anthropic_api_key", anthropic_api_key, clear_anthropic_api_key),
+                    ("encrypted_groq_api_key", groq_api_key, clear_groq_api_key),
+                ),
+            )
         except (ValueError, RuntimeError) as e:
             raise HTTPException(status_code=400, detail=f"API Key encryption failed: {e}")
         await session.flush()
@@ -969,6 +957,11 @@ async def api_start_floor_transcription(room_id: int):
         room = await get_room_by_id(session, room_id)
         if not room or not room.floor_transcription_enabled:
             raise HTTPException(status_code=400, detail="Floor transcription not enabled or invalid room")
+        if room.floor_source == "program_ingest":
+            raise HTTPException(
+                status_code=409,
+                detail="Program ingest owns the floor; transcription starts automatically when audio arrives",
+            )
         if room.floor_transcription_provider == "none":
             raise HTTPException(status_code=400, detail="Cannot start transcription with 'none' provider")
         event = await get_event_by_id(session, room.event_id)
@@ -1007,6 +1000,17 @@ async def api_start_floor_transcription(room_id: int):
     except Exception as e:
         logger.error(f"Failed to start floor-bot: {e}")
         raise HTTPException(status_code=502, detail="Bot service connection failed or access was revoked upstream.")
+    # Ownership may change while the bot's slow browser startup is in flight.
+    async with get_session() as session:
+        current_room = await get_room_by_id(session, room_id)
+        if not current_room or current_room.floor_source != "jitsi_bot":
+            try:
+                await client.post(
+                    f"{settings.floor_bot_base}/stop", json={"event_slug": event_slug, "room_id": room_id}
+                )
+            except httpx.HTTPError:
+                logger.warning("Failed to clean up floor-bot after ownership changed room_id=%s", room_id)
+            raise HTTPException(status_code=409, detail="Floor source changed during bot startup")
     try:
         api_key = get_api_key(event, ProviderEnum(room.floor_transcription_provider))
         config = ProviderConfig(api_key=api_key)
@@ -1035,6 +1039,10 @@ async def api_stop_floor_transcription(room_id: int):
         room = await get_room_by_id(session, room_id)
         if not room:
             raise HTTPException(status_code=400, detail="Invalid room")
+        if room.floor_source == "program_ingest":
+            raise HTTPException(
+                status_code=409, detail="Revoke or disable program ingest in the room settings to stop its floor source"
+            )
         event = await get_event_by_id(session, room.event_id)
         if not event:
             raise HTTPException(status_code=400, detail="Event not found")
