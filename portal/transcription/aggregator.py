@@ -109,10 +109,7 @@ class CaptionAggregator:
                     has_finalized = True
 
                 state.current_utterance = remainder
-                if state.current_utterance:
-                    state.utterance_start_time = time.time()
-                else:
-                    state.utterance_start_time = 0.0
+                state.utterance_start_time = time.time()
 
         state.current_word_count = len(state.current_utterance.split()) if state.current_utterance else 0
 
